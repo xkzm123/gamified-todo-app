@@ -15,6 +15,7 @@ import {
   TaskType,
   RewardType,
   HabitDirection,
+  ThemeColor,
 } from '../types';
 import { generateId } from '../utils/id';
 import { getTodayDateString } from '../utils/date';
@@ -164,6 +165,9 @@ interface GameActions {
 
   spawnBoss: () => void;
   dealDamageToBoss: (amount: number) => void;
+
+  setTaskFilter: (filter: 'daily' | 'todo') => void;
+  setTheme: (theme: ThemeColor) => void;
 }
 
 type GameStore = AppState & GameActions;
@@ -183,6 +187,8 @@ export const useGameStore = create<GameStore>()(
       totalBossesDefeated: 0,
       xpBoostRemaining: 0,
       streakFrozen: false,
+      taskFilter: 'daily' as const,
+      theme: ThemeColor.Blue,
 
       addDaily: (data) => {
         const now = new Date().toISOString();
@@ -672,6 +678,13 @@ export const useGameStore = create<GameStore>()(
         }
       },
 
+      setTaskFilter: (filter) => set({ taskFilter: filter }),
+
+      setTheme: (theme) => {
+        set({ theme });
+        document.documentElement.setAttribute('data-theme', theme);
+      },
+
       checkAndResetDailies: () => {
         const today = getTodayDateString();
         const state = get();
@@ -767,6 +780,13 @@ export const useGameStore = create<GameStore>()(
           if (state.streakFrozen === undefined) {
             state.streakFrozen = false;
           }
+          if (state.taskFilter === undefined) {
+            state.taskFilter = 'daily';
+          }
+          if (state.theme === undefined) {
+            state.theme = ThemeColor.Blue;
+          }
+          document.documentElement.setAttribute('data-theme', state.theme);
         }
       },
     },

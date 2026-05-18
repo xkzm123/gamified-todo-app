@@ -12,7 +12,8 @@ import Toast from '../../components/common/Toast';
 import { useToast } from '../../hooks/useToast';
 
 export default function TaskListScreen() {
-  const [filter, setFilter] = useState<'daily' | 'todo'>('daily');
+  const filter = useGameStore((s) => s.taskFilter);
+  const setFilter = useGameStore((s) => s.setTaskFilter);
   const [showArchive, setShowArchive] = useState(false);
   const navigate = useNavigate();
   const dailies = useGameStore((s) => s.dailies);

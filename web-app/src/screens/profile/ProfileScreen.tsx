@@ -1,15 +1,28 @@
 import { useGameStore } from '../../store/useGameStore';
 import { xpToNextLevel } from '../../utils/gamification';
 import { formatTimestamp } from '../../utils/date';
+import { ThemeColor } from '../../types';
 import StatusBar from '../../components/common/StatusBar';
 import { IconHeart, IconCoin, IconSword, IconBoss } from '../../components/common/Icons';
+
+const THEME_OPTIONS: { key: ThemeColor; label: string; dotClass: string }[] = [
+  { key: ThemeColor.Blue, label: '海洋蓝', dotClass: 'theme-dot-blue' },
+  { key: ThemeColor.Green, label: '森林绿', dotClass: 'theme-dot-green' },
+  { key: ThemeColor.Purple, label: '星空紫', dotClass: 'theme-dot-purple' },
+  { key: ThemeColor.Orange, label: '日落橙', dotClass: 'theme-dot-orange' },
+];
 
 export default function ProfileScreen() {
   const user = useGameStore((s) => s.user);
   const activityLog = useGameStore((s) => s.activityLog);
   const boss = useGameStore((s) => s.boss);
   const totalBossesDefeated = useGameStore((s) => s.totalBossesDefeated);
+  const theme = useGameStore((s) => s.theme);
+  const setTheme = useGameStore((s) => s.setTheme);
+
   const hpPct = Math.max(0, (user.hp / user.maxHp) * 100);
+  const xpForNext = xpToNextLevel(user.level);
+  const xpPct = Math.min(100, (user.xp / xpForNext) * 100);
   const bossHpPct = boss ? Math.max(0, (boss.hp / boss.maxHp) * 100) : 0;
 
   return (
@@ -20,7 +33,12 @@ export default function ProfileScreen() {
         <div className="hero-card">
           <div className="hero-avatar" style={{ color: '#f59e0b' }}><IconSword size={48} /></div>
           <div className="hero-level">等级 {user.level}</div>
-          <div className="hero-xp">{user.xp} / {xpToNextLevel(user.level)} XP</div>
+          <div className="level-progress">
+            <div className="level-progress-bar">
+              <div className="level-progress-fill" style={{ width: `${xpPct}%` }} />
+            </div>
+            <div className="level-progress-text">{user.xp} / {xpForNext} XP</div>
+          </div>
 
           <div className="hero-stats">
             <div className="hero-stat-item">
@@ -57,6 +75,22 @@ export default function ProfileScreen() {
           </div>
         )}
 
+        <div className="theme-section">
+          <div className="section-title">主题配色</div>
+          <div className="theme-options">
+            {THEME_OPTIONS.map((t) => (
+              <div
+                key={t.key}
+                className={`theme-option ${theme === t.key ? 'theme-option-active' : ''}`}
+                onClick={() => setTheme(t.key)}
+              >
+                <div className={`theme-dot ${t.dotClass}`} />
+                <div className="theme-label">{t.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="section">
           <div className="section-title">统计</div>
           <div className="stats-grid">
@@ -82,6 +116,7 @@ export default function ProfileScreen() {
             ))
           )}
         </div>
+        <div className="bottom-spacer" />
       </div>
     </div>
   );

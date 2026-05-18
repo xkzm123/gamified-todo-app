@@ -117,6 +117,13 @@ export interface Boss {
   imageType: string;
 }
 
+export enum ThemeColor {
+  Blue = 'blue',
+  Green = 'green',
+  Purple = 'purple',
+  Orange = 'orange',
+}
+
 export interface AppState {
   user: UserStats;
   dailies: Daily[];
@@ -130,4 +137,6 @@ export interface AppState {
   totalBossesDefeated: number;
   xpBoostRemaining: number;
   streakFrozen: boolean;
+  taskFilter: 'daily' | 'todo';
+  theme: ThemeColor;
 }
