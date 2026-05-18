@@ -1,0 +1,545 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import type {
+  AppState,
+  UserStats,
+  Daily,
+  Todo,
+  Habit,
+  Reward,
+  ActivityLogEntry,
+} from '../types';
+import {
+  TaskType,
+  RewardType,
+  HabitDirection,
+} from '../types';
+import { generateId } from '../utils/id';
+import { getTodayDateString } from '../utils/date';
+import {
+  calculateXPForDifficulty,
+  calculateGoldForDifficulty,
+  calculateHPDamage,
+  calculateMaxHp,
+  xpToNextLevel,
+} from '../utils/gamification';
+import {
+  DAILY_HP_PENALTY,
+  HEALTH_POTION_HEAL,
+  HEALTH_POTION_COST,
+  DEATH_GOLD_LOSS_PERCENT,
+  DEATH_XP_LOSS,
+  DEATH_REVIVE_HP_PERCENT,
+  STREAK_BONUS_INTERVAL,
+  STREAK_BONUS_XP,
+  STREAK_BONUS_GOLD,
+  MAX_LOG_ENTRIES,
+} from '../constants/game';
+import { runMigrations } from '../utils/migration';
+
+const DEFAULT_USER: UserStats = {
+  xp: 0,
+  gold: 0,
+  hp: 50,
+  maxHp: 50,
+  level: 1,
+  totalTasksCompleted: 0,
+  totalHabitClicks: 0,
+  deathCount: 0,
+  currentStreak: 0,
+  longestStreak: 0,
+};
+
+const BUILT_IN_HEALTH_POTION_ID = 'health-potion-builtin';
+
+function createHealthPotion(): Reward {
+  return {
+    id: BUILT_IN_HEALTH_POTION_ID,
+    title: '生命药水',
+    description: `恢复 ${HEALTH_POTION_HEAL} 点生命值`,
+    goldCost: HEALTH_POTION_COST,
+    type: RewardType.HealthPotion,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+interface GameActions {
+  addDaily: (data: { title: string; difficulty: Daily['difficulty']; notes?: string }) => void;
+  updateDaily: (id: string, updates: Partial<Daily>) => void;
+  deleteDaily: (id: string) => void;
+  toggleDaily: (id: string) => void;
+
+  addTodo: (data: { title: string; difficulty: Todo['difficulty']; notes?: string }) => void;
+  updateTodo: (id: string, updates: Partial<Todo>) => void;
+  deleteTodo: (id: string) => void;
+  completeTodo: (id: string) => void;
+  uncompleteTodo: (id: string) => void;
+
+  addHabit: (data: {
+    title: string;
+    direction: HabitDirection;
+    difficulty: Habit['difficulty'];
+    notes?: string;
+  }) => void;
+  updateHabit: (id: string, updates: Partial<Habit>) => void;
+  deleteHabit: (id: string) => void;
+  triggerHabit: (id: string, direction: 'up' | 'down') => void;
+
+  addReward: (data: { title: string; description?: string; goldCost: number }) => void;
+  updateReward: (id: string, updates: Partial<Reward>) => void;
+  deleteReward: (id: string) => void;
+  redeemReward: (rewardId: string) => boolean;
+
+  checkAndResetDailies: () => void;
+  addXP: (amount: number) => void;
+  addGold: (amount: number) => void;
+  takeDamage: (amount: number) => void;
+  heal: (amount: number) => void;
+  addLogEntry: (entry: Omit<ActivityLogEntry, 'id'>) => void;
+}
+
+type GameStore = AppState & GameActions;
+
+export const useGameStore = create<GameStore>()(
+  persist(
+    (set, get) => ({
+      user: { ...DEFAULT_USER },
+      dailies: [],
+      todos: [],
+      habits: [],
+      rewards: [createHealthPotion()],
+      activityLog: [],
+      lastResetDate: getTodayDateString(),
+      schemaVersion: 1,
+
+      // ---- Daily Actions ----
+      addDaily: (data) => {
+        const now = new Date().toISOString();
+        const daily: Daily = {
+          ...data,
+          type: TaskType.Daily,
+          id: generateId(),
+          completedToday: false,
+          streak: 0,
+          longestStreak: 0,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((s) => ({ dailies: [...s.dailies, daily] }));
+      },
+
+      updateDaily: (id, updates) => {
+        set((s) => ({
+          dailies: s.dailies.map((d) =>
+            d.id === id ? { ...d, ...updates, updatedAt: new Date().toISOString() } : d,
+          ),
+        }));
+      },
+
+      deleteDaily: (id) => {
+        set((s) => ({ dailies: s.dailies.filter((d) => d.id !== id) }));
+      },
+
+      toggleDaily: (id) => {
+        get().checkAndResetDailies();
+        const daily = get().dailies.find((d) => d.id === id);
+        if (!daily) return;
+
+        if (daily.completedToday) {
+          const xp = calculateXPForDifficulty(daily.difficulty);
+          const gold = calculateGoldForDifficulty(daily.difficulty);
+          set((s) => ({
+            user: {
+              ...s.user,
+              xp: Math.max(0, s.user.xp - xp),
+              gold: Math.max(0, s.user.gold - gold),
+              totalTasksCompleted: Math.max(0, s.user.totalTasksCompleted - 1),
+            },
+            dailies: s.dailies.map((d) =>
+              d.id === id
+                ? { ...d, completedToday: false, streak: Math.max(0, d.streak - 1) }
+                : d,
+            ),
+          }));
+        } else {
+          const xp = calculateXPForDifficulty(daily.difficulty);
+          const gold = calculateGoldForDifficulty(daily.difficulty);
+          const newStreak = daily.streak + 1;
+          set((s) => ({
+            dailies: s.dailies.map((d) =>
+              d.id === id
+                ? {
+                    ...d,
+                    completedToday: true,
+                    streak: newStreak,
+                    longestStreak: Math.max(d.longestStreak, newStreak),
+                  }
+                : d,
+            ),
+          }));
+          get().addXP(xp);
+          get().addGold(gold);
+          set((s) => ({
+            user: { ...s.user, totalTasksCompleted: s.user.totalTasksCompleted + 1 },
+          }));
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `完成每日 "${daily.title}": +${xp} XP, +${gold} 金币`,
+            type: 'xp',
+            amount: xp,
+          });
+        }
+      },
+
+      // ---- Todo Actions ----
+      addTodo: (data) => {
+        const now = new Date().toISOString();
+        const todo: Todo = {
+          ...data,
+          type: TaskType.Todo,
+          id: generateId(),
+          completed: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((s) => ({ todos: [...s.todos, todo] }));
+      },
+
+      updateTodo: (id, updates) => {
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t,
+          ),
+        }));
+      },
+
+      deleteTodo: (id) => {
+        set((s) => ({ todos: s.todos.filter((t) => t.id !== id) }));
+      },
+
+      completeTodo: (id) => {
+        const todo = get().todos.find((t) => t.id === id);
+        if (!todo || todo.completed) return;
+
+        const xp = calculateXPForDifficulty(todo.difficulty);
+        const gold = calculateGoldForDifficulty(todo.difficulty);
+        const now = new Date().toISOString();
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === id ? { ...t, completed: true, completedAt: now, updatedAt: now } : t,
+          ),
+        }));
+        get().addXP(xp);
+        get().addGold(gold);
+        set((s) => ({
+          user: { ...s.user, totalTasksCompleted: s.user.totalTasksCompleted + 1 },
+        }));
+        get().addLogEntry({
+          timestamp: now,
+          message: `完成待办 "${todo.title}": +${xp} XP, +${gold} 金币`,
+          type: 'xp',
+          amount: xp,
+        });
+      },
+
+      uncompleteTodo: (id) => {
+        const todo = get().todos.find((t) => t.id === id);
+        if (!todo || !todo.completed) return;
+
+        const xp = calculateXPForDifficulty(todo.difficulty);
+        const gold = calculateGoldForDifficulty(todo.difficulty);
+        set((s) => ({
+          user: {
+            ...s.user,
+            xp: Math.max(0, s.user.xp - xp),
+            gold: Math.max(0, s.user.gold - gold),
+            totalTasksCompleted: Math.max(0, s.user.totalTasksCompleted - 1),
+          },
+          todos: s.todos.map((t) =>
+            t.id === id
+              ? { ...t, completed: false, completedAt: undefined, updatedAt: new Date().toISOString() }
+              : t,
+          ),
+        }));
+      },
+
+      // ---- Habit Actions ----
+      addHabit: (data) => {
+        const now = new Date().toISOString();
+        const habit: Habit = {
+          ...data,
+          id: generateId(),
+          streak: 0,
+          longestStreak: 0,
+          positiveCount: 0,
+          negativeCount: 0,
+          todayPositiveCount: 0,
+          todayNegativeCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((s) => ({ habits: [...s.habits, habit] }));
+      },
+
+      updateHabit: (id, updates) => {
+        set((s) => ({
+          habits: s.habits.map((h) =>
+            h.id === id ? { ...h, ...updates, updatedAt: new Date().toISOString() } : h,
+          ),
+        }));
+      },
+
+      deleteHabit: (id) => {
+        set((s) => ({ habits: s.habits.filter((h) => h.id !== id) }));
+      },
+
+      triggerHabit: (id, direction) => {
+        const habit = get().habits.find((h) => h.id === id);
+        if (!habit) return;
+
+        if (direction === 'up' && (habit.direction === HabitDirection.Positive || habit.direction === HabitDirection.Both)) {
+          const xp = Math.ceil(calculateXPForDifficulty(habit.difficulty) / 2);
+          const gold = Math.ceil(calculateGoldForDifficulty(habit.difficulty) / 2);
+          get().addXP(xp);
+          get().addGold(gold);
+          const newTodayPos = habit.todayPositiveCount + 1;
+          set((s) => ({
+            habits: s.habits.map((h) =>
+              h.id === id
+                ? {
+                    ...h,
+                    positiveCount: h.positiveCount + 1,
+                    todayPositiveCount: newTodayPos,
+                    streak: h.streak + 1,
+                    longestStreak: Math.max(h.longestStreak, h.streak + 1),
+                  }
+                : h,
+            ),
+            user: { ...s.user, totalHabitClicks: s.user.totalHabitClicks + 1 },
+          }));
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `好习惯 "${habit.title}": +${xp} XP, +${gold} 金币`,
+            type: 'xp',
+            amount: xp,
+          });
+        }
+
+        if (direction === 'down' && (habit.direction === HabitDirection.Negative || habit.direction === HabitDirection.Both)) {
+          const damage = calculateHPDamage(habit.difficulty);
+          get().takeDamage(damage);
+          set((s) => ({
+            habits: s.habits.map((h) =>
+              h.id === id
+                ? { ...h, negativeCount: h.negativeCount + 1, todayNegativeCount: h.todayNegativeCount + 1 }
+                : h,
+            ),
+            user: { ...s.user, totalHabitClicks: s.user.totalHabitClicks + 1 },
+          }));
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `坏习惯 "${habit.title}": -${damage} HP`,
+            type: 'hp_damage',
+            amount: damage,
+          });
+        }
+      },
+
+      // ---- Reward Actions ----
+      addReward: (data) => {
+        const now = new Date().toISOString();
+        const reward: Reward = {
+          ...data,
+          id: generateId(),
+          type: RewardType.Custom,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((s) => ({ rewards: [...s.rewards, reward] }));
+      },
+
+      updateReward: (id, updates) => {
+        set((s) => ({
+          rewards: s.rewards.map((r) =>
+            r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r,
+          ),
+        }));
+      },
+
+      deleteReward: (id) => {
+        if (id === BUILT_IN_HEALTH_POTION_ID) return;
+        set((s) => ({ rewards: s.rewards.filter((r) => r.id !== id) }));
+      },
+
+      redeemReward: (rewardId) => {
+        const state = get();
+        const reward = state.rewards.find((r) => r.id === rewardId);
+        if (!reward || state.user.gold < reward.goldCost) return false;
+
+        set((s) => ({
+          user: { ...s.user, gold: s.user.gold - reward.goldCost },
+        }));
+
+        if (reward.type === RewardType.HealthPotion) {
+          get().heal(HEALTH_POTION_HEAL);
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `使用了生命药水: +${HEALTH_POTION_HEAL} HP`,
+            type: 'hp_heal',
+            amount: HEALTH_POTION_HEAL,
+          });
+        } else {
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `兑换了 "${reward.title}"，花费 ${reward.goldCost} 金币`,
+            type: 'gold',
+            amount: -reward.goldCost,
+          });
+        }
+        return true;
+      },
+
+      // ---- System Actions ----
+      addXP: (amount) => {
+        set((s) => {
+          let { xp, level } = s.user;
+          xp += amount;
+          while (xp >= xpToNextLevel(level)) {
+            xp -= xpToNextLevel(level);
+            level += 1;
+            get().addLogEntry({
+              timestamp: new Date().toISOString(),
+              message: `升级了！达到等级 ${level}！`,
+              type: 'levelup',
+              amount: level,
+            });
+          }
+          const newMaxHp = calculateMaxHp(level);
+          return {
+            user: { ...s.user, xp, level, maxHp: newMaxHp, hp: s.user.hp },
+          };
+        });
+      },
+
+      addGold: (amount) => {
+        set((s) => ({
+          user: { ...s.user, gold: s.user.gold + amount },
+        }));
+      },
+
+      takeDamage: (amount) => {
+        set((s) => {
+          const newHp = Math.max(0, s.user.hp - amount);
+          if (newHp <= 0 && s.user.hp > 0) {
+            const goldLoss = Math.floor(s.user.gold * DEATH_GOLD_LOSS_PERCENT);
+            const revivedHp = Math.floor(s.user.maxHp * DEATH_REVIVE_HP_PERCENT);
+            get().addLogEntry({
+              timestamp: new Date().toISOString(),
+              message: `生命值归零！失去了 ${goldLoss} 金币和 ${DEATH_XP_LOSS} XP...`,
+              type: 'death',
+            });
+            return {
+              user: {
+                ...s.user,
+                hp: revivedHp,
+                gold: Math.max(0, s.user.gold - goldLoss),
+                xp: Math.max(0, s.user.xp - DEATH_XP_LOSS),
+                deathCount: s.user.deathCount + 1,
+              },
+            };
+          }
+          return { user: { ...s.user, hp: newHp } };
+        });
+      },
+
+      heal: (amount) => {
+        set((s) => ({
+          user: {
+            ...s.user,
+            hp: Math.min(s.user.maxHp, s.user.hp + amount),
+          },
+        }));
+      },
+
+      addLogEntry: (entry) => {
+        const logEntry: ActivityLogEntry = { id: generateId(), ...entry };
+        set((s) => ({
+          activityLog: [logEntry, ...s.activityLog].slice(0, MAX_LOG_ENTRIES),
+        }));
+      },
+
+      checkAndResetDailies: () => {
+        const today = getTodayDateString();
+        const state = get();
+        if (state.lastResetDate === today) return;
+
+        let totalDamage = 0;
+        const uncompleted = state.dailies.filter((d) => !d.completedToday).length;
+        state.dailies.forEach((d) => {
+          if (!d.completedToday) {
+            totalDamage += DAILY_HP_PENALTY;
+          }
+        });
+
+        const allCompleted = uncompleted === 0 && state.dailies.length > 0;
+        const newCurrentStreak = allCompleted ? state.user.currentStreak + 1 : 0;
+
+        set((s) => ({
+          lastResetDate: today,
+          dailies: s.dailies.map((d) => ({
+            ...d,
+            completedToday: false,
+            streak: d.completedToday ? d.streak : 0,
+          })),
+          habits: s.habits.map((h) => ({
+            ...h,
+            todayPositiveCount: 0,
+            todayNegativeCount: 0,
+            streak: h.todayPositiveCount > 0 ? h.streak : 0,
+            longestStreak: Math.max(h.longestStreak, h.streak),
+          })),
+          user: {
+            ...s.user,
+            currentStreak: newCurrentStreak,
+            longestStreak: Math.max(s.user.longestStreak, newCurrentStreak),
+          },
+        }));
+
+        if (totalDamage > 0) {
+          get().takeDamage(totalDamage);
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `${uncompleted} 个每日任务未完成: -${totalDamage} HP`,
+            type: 'hp_damage',
+            amount: totalDamage,
+          });
+        }
+
+        if (allCompleted && newCurrentStreak > 0 && newCurrentStreak % STREAK_BONUS_INTERVAL === 0) {
+          get().addXP(STREAK_BONUS_XP);
+          get().addGold(STREAK_BONUS_GOLD);
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `${STREAK_BONUS_INTERVAL} 天连胜奖励: +${STREAK_BONUS_XP} XP, +${STREAK_BONUS_GOLD} 金币！`,
+            type: 'xp',
+            amount: STREAK_BONUS_XP,
+          });
+        }
+      },
+    }),
+    {
+      name: 'gamified-todo-storage',
+      version: 1,
+      migrate: (persistedState, version) => runMigrations(persistedState, version) as GameStore,
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          const hasHealthPotion = state.rewards.some((r) => r.id === BUILT_IN_HEALTH_POTION_ID);
+          if (!hasHealthPotion) {
+            state.rewards = [createHealthPotion(), ...state.rewards];
+          }
+        }
+      },
+    },
+  ),
+);

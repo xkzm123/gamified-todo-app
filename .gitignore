@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.expo/
+*.apk
+*.aab
+*.keystore
+*.jks
+.gradle/
+android/app/build/
+android/captures
+local.properties
+.DS_Store
+*.local
+.idea/
