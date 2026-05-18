@@ -17,6 +17,12 @@ export enum HabitDirection {
   Both = 'both',
 }
 
+export interface SubTask {
+  id: UUID;
+  title: string;
+  completed: boolean;
+}
+
 export interface BaseTask {
   id: UUID;
   title: string;
@@ -37,6 +43,7 @@ export interface Todo extends BaseTask {
   type: TaskType.Todo;
   completed: boolean;
   completedAt?: string;
+  subTasks: SubTask[];
 }
 
 export type Task = Daily | Todo;
@@ -59,6 +66,8 @@ export interface Habit {
 
 export enum RewardType {
   HealthPotion = 'health_potion',
+  XpBoost = 'xp_boost',
+  StreakFreeze = 'streak_freeze',
   Custom = 'custom',
 }
 
@@ -89,8 +98,23 @@ export interface ActivityLogEntry {
   id: UUID;
   timestamp: string;
   message: string;
-  type: 'xp' | 'gold' | 'hp_damage' | 'hp_heal' | 'levelup' | 'death';
+  type: 'xp' | 'gold' | 'hp_damage' | 'hp_heal' | 'levelup' | 'death' | 'boss';
   amount?: number;
+  taskId?: string;
+}
+
+export interface Boss {
+  id: UUID;
+  name: string;
+  type: 'goblin' | 'skeleton' | 'dragon' | 'demon';
+  hp: number;
+  maxHp: number;
+  level: number;
+  xpReward: number;
+  goldReward: number;
+  defeated: boolean;
+  damageDealt: number;
+  imageType: string;
 }
 
 export interface AppState {
@@ -102,4 +126,8 @@ export interface AppState {
   activityLog: ActivityLogEntry[];
   lastResetDate: string;
   schemaVersion: number;
+  boss: Boss | null;
+  totalBossesDefeated: number;
+  xpBoostRemaining: number;
+  streakFrozen: boolean;
 }

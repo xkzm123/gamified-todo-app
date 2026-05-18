@@ -6,19 +6,45 @@ interface Props {
   initialTitle?: string;
   initialDifficulty?: Difficulty;
   initialNotes?: string;
-  onSave: (data: { title: string; difficulty: Difficulty; notes: string }) => void;
+  initialSubTasks?: { title: string }[];
+  showSubTasks?: boolean;
+  onSave: (data: { title: string; difficulty: Difficulty; notes: string; subTasks?: { title: string }[] }) => void;
 }
 
 const DIFFICULTIES = [Difficulty.Easy, Difficulty.Medium, Difficulty.Hard];
 
-export default function TaskForm({ initialTitle = '', initialDifficulty = Difficulty.Easy, initialNotes = '', onSave }: Props) {
+export default function TaskForm({
+  initialTitle = '',
+  initialDifficulty = Difficulty.Easy,
+  initialNotes = '',
+  initialSubTasks,
+  showSubTasks = false,
+  onSave,
+}: Props) {
   const [title, setTitle] = useState(initialTitle);
   const [difficulty, setDifficulty] = useState<Difficulty>(initialDifficulty);
   const [notes, setNotes] = useState(initialNotes);
+  const [subTasks, setSubTasks] = useState<{ title: string }[]>(initialSubTasks || []);
+  const [subInput, setSubInput] = useState('');
 
   const handleSave = () => {
     if (!title.trim()) return;
-    onSave({ title: title.trim(), difficulty, notes: notes.trim() });
+    onSave({
+      title: title.trim(),
+      difficulty,
+      notes: notes.trim(),
+      subTasks: showSubTasks ? subTasks : undefined,
+    });
+  };
+
+  const addSubTask = () => {
+    if (!subInput.trim()) return;
+    setSubTasks([...subTasks, { title: subInput.trim() }]);
+    setSubInput('');
+  };
+
+  const removeSubTask = (idx: number) => {
+    setSubTasks(subTasks.filter((_, i) => i !== idx));
   };
 
   return (
@@ -52,6 +78,32 @@ export default function TaskForm({ initialTitle = '', initialDifficulty = Diffic
         onChange={(e) => setNotes(e.target.value)}
         placeholder="添加备注..."
       />
+
+      {showSubTasks && (
+        <div className="subtask-section">
+          <div className="subtask-section-title">子任务</div>
+          <div className="subtask-input-row">
+            <input
+              className="subtask-input"
+              value={subInput}
+              onChange={(e) => setSubInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubTask(); } }}
+              placeholder="添加子任务..."
+            />
+            <button className="subtask-add-btn" onClick={addSubTask}>添加</button>
+          </div>
+          {subTasks.length > 0 && (
+            <div className="subtask-tags">
+              {subTasks.map((st, i) => (
+                <span key={i} className="subtask-tag">
+                  {st.title}
+                  <button className="subtask-tag-remove" onClick={() => removeSubTask(i)}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <button className="save-btn" onClick={handleSave}>保存</button>
     </div>

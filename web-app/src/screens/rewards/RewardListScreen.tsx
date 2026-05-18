@@ -16,7 +16,9 @@ export default function RewardListScreen() {
   const deleteReward = useGameStore((s) => s.deleteReward);
   const { toast, showToast } = useToast();
 
-  const potion = rewards.find((r) => r.type === RewardType.HealthPotion);
+  const builtInRewards = rewards.filter((r) =>
+    r.type === RewardType.HealthPotion || r.type === RewardType.XpBoost || r.type === RewardType.StreakFreeze
+  );
   const customRewards = rewards.filter((r) => r.type === RewardType.Custom);
 
   const handleRedeem = (rewardId: string, title: string) => {
@@ -39,18 +41,21 @@ export default function RewardListScreen() {
       <StatusBar />
 
       <div className="list-container">
-        {potion && (
+        {builtInRewards.length > 0 && (
           <div className="potion-section">
-            <RewardCard
-              reward={potion}
-              canAfford={gold >= potion.goldCost}
-              onRedeem={() => handleRedeem(potion.id, potion.title)}
-            />
+            {builtInRewards.map((r) => (
+              <RewardCard
+                key={r.id}
+                reward={r}
+                canAfford={gold >= r.goldCost}
+                onRedeem={() => handleRedeem(r.id, r.title)}
+              />
+            ))}
           </div>
         )}
 
         {customRewards.length === 0 ? (
-          <EmptyState icon="🎁" message="还没有自定义奖励\n创建奖励来激励自己吧！" />
+          <EmptyState icon="rewards" message="还没有自定义奖励\n创建奖励来激励自己吧！" />
         ) : (
           customRewards.map((item) => (
             <RewardCard

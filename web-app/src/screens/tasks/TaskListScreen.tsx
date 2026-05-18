@@ -13,6 +13,7 @@ import { useToast } from '../../hooks/useToast';
 
 export default function TaskListScreen() {
   const [filter, setFilter] = useState<'daily' | 'todo'>('daily');
+  const [showArchive, setShowArchive] = useState(false);
   const navigate = useNavigate();
   const dailies = useGameStore((s) => s.dailies);
   const todos = useGameStore((s) => s.todos);
@@ -21,6 +22,7 @@ export default function TaskListScreen() {
   const uncompleteTodo = useGameStore((s) => s.uncompleteTodo);
   const deleteDaily = useGameStore((s) => s.deleteDaily);
   const deleteTodo = useGameStore((s) => s.deleteTodo);
+  const toggleSubTask = useGameStore((s) => s.toggleSubTask);
   const checkAndResetDailies = useGameStore((s) => s.checkAndResetDailies);
   const { toast, showToast } = useToast();
 
@@ -55,7 +57,23 @@ export default function TaskListScreen() {
     }
   };
 
-  const tasks: (Daily | Todo)[] = filter === 'daily' ? dailies : todos.filter((t) => !t.completed);
+  const activeTasks: (Daily | Todo)[] = filter === 'daily' ? dailies : todos.filter((t) => !t.completed);
+  const completedTodos = todos.filter((t) => t.completed);
+
+  const renderTaskCard = (item: Daily | Todo) => (
+    <TaskCard
+      key={item.id}
+      task={item}
+      onToggle={() => handleToggle(item)}
+      onEdit={() => navigate(`/tasks/edit/${item.type}/${item.id}`)}
+      onDelete={() => handleDelete(item)}
+      onToggleSubTask={
+        item.type === TaskType.Todo
+          ? (subId) => toggleSubTask(item.id, subId)
+          : undefined
+      }
+    />
+  );
 
   return (
     <div className="screen">
@@ -63,21 +81,25 @@ export default function TaskListScreen() {
       <TaskFilter selected={filter} onSelect={setFilter} />
 
       <div className="list-container">
-        {tasks.length === 0 ? (
+        {activeTasks.length === 0 && completedTodos.length === 0 ? (
           <EmptyState
-            icon="📝"
+            icon="tasks"
             message={filter === 'daily' ? '还没有每日任务\n点击下方按钮添加' : '还没有待办事项\n点击下方按钮添加'}
           />
         ) : (
-          tasks.map((item) => (
-            <TaskCard
-              key={item.id}
-              task={item}
-              onToggle={() => handleToggle(item)}
-              onEdit={() => navigate(`/tasks/edit/${item.type}/${item.id}`)}
-              onDelete={() => handleDelete(item)}
-            />
-          ))
+          <>
+            {activeTasks.map(renderTaskCard)}
+
+            {filter === 'todo' && completedTodos.length > 0 && (
+              <>
+                <div className="archive-toggle" onClick={() => setShowArchive(!showArchive)}>
+                  <span>{showArchive ? '▼' : '▶'}</span>
+                  <span>已完成的任务 ({completedTodos.length})</span>
+                </div>
+                {showArchive && completedTodos.map(renderTaskCard)}
+              </>
+            )}
+          </>
         )}
         <div className="bottom-spacer" />
       </div>

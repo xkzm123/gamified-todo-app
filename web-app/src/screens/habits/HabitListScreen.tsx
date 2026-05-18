@@ -32,7 +32,7 @@ export default function HabitListScreen() {
 
       <div className="list-container">
         {habits.length === 0 ? (
-          <EmptyState icon="🔄" message="还没有习惯\n点击下方按钮添加" />
+          <EmptyState icon="habits" message="还没有习惯\n点击下方按钮添加" />
         ) : (
           habits.map((item) => (
             <HabitCard

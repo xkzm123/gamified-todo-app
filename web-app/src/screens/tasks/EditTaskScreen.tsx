@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useGameStore } from '../../store/useGameStore';
 import TaskForm from '../../components/tasks/TaskForm';
+import { TaskType } from '../../types';
 
 export default function EditTaskScreen() {
   const { type, id } = useParams<{ type: string; id: string }>();
@@ -19,11 +20,13 @@ export default function EditTaskScreen() {
     return null;
   }
 
-  const handleSave = (data: { title: string; difficulty: any; notes: string }) => {
+  const isTodo = task.type === TaskType.Todo;
+
+  const handleSave = (data: { title: string; difficulty: any; notes: string; subTasks?: { title: string }[] }) => {
     if (type === 'daily') {
-      updateDaily(id!, data);
+      updateDaily(id!, { title: data.title, difficulty: data.difficulty, notes: data.notes });
     } else {
-      updateTodo(id!, data);
+      updateTodo(id!, { title: data.title, difficulty: data.difficulty, notes: data.notes, subTasks: data.subTasks } as any);
     }
     navigate(-1);
   };
@@ -39,6 +42,8 @@ export default function EditTaskScreen() {
         initialTitle={task.title}
         initialDifficulty={task.difficulty}
         initialNotes={task.notes || ''}
+        initialSubTasks={isTodo ? (task as any).subTasks : undefined}
+        showSubTasks={isTodo}
         onSave={handleSave}
       />
     </div>

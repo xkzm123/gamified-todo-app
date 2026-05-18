@@ -1,5 +1,6 @@
 import { useGameStore } from '../../store/useGameStore';
 import { xpToNextLevel } from '../../utils/gamification';
+import { IconHeart, IconStar, IconCoin } from './Icons';
 
 export default function StatusBar() {
   const hp = useGameStore((s) => s.user.hp);
@@ -14,18 +15,22 @@ export default function StatusBar() {
   return (
     <div className="status-bar">
       <div className="status-item">
-        <span className="status-label">❤️ {hp}/{maxHp}</span>
+        <span className="status-label">
+          <span className="status-icon"><IconHeart size={12} /></span> {hp}/{maxHp}
+        </span>
         <div className="bar-track hp-track">
           <div className="bar-fill hp-fill" style={{ width: `${hpPct}%` }} />
         </div>
       </div>
       <div className="status-item status-xp">
-        <span className="status-label">⭐ Lv.{level}</span>
+        <span className="status-label">
+          <span className="status-icon"><IconStar size={12} /></span> Lv.{level}
+        </span>
         <div className="bar-track xp-track">
           <div className="bar-fill xp-fill" style={{ width: `${xpPct}%` }} />
         </div>
       </div>
-      <div className="status-gold">🪙 {gold}</div>
+      <div className="status-gold"><IconCoin size={14} /> {gold}</div>
     </div>
   );
 }

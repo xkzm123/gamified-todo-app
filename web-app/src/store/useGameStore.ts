@@ -8,6 +8,8 @@ import type {
   Habit,
   Reward,
   ActivityLogEntry,
+  SubTask,
+  Boss,
 } from '../types';
 import {
   TaskType,
@@ -22,11 +24,16 @@ import {
   calculateHPDamage,
   calculateMaxHp,
   xpToNextLevel,
+  calculateBossDPS,
 } from '../utils/gamification';
 import {
   DAILY_HP_PENALTY,
   HEALTH_POTION_HEAL,
   HEALTH_POTION_COST,
+  XP_BOOST_MULTIPLIER,
+  XP_BOOST_COST,
+  XP_BOOST_DURATION_TASKS,
+  STREAK_FREEZE_COST,
   DEATH_GOLD_LOSS_PERCENT,
   DEATH_XP_LOSS,
   DEATH_REVIVE_HP_PERCENT,
@@ -34,6 +41,12 @@ import {
   STREAK_BONUS_XP,
   STREAK_BONUS_GOLD,
   MAX_LOG_ENTRIES,
+  BOSS_DAMAGE_PER_TASK,
+  BOSS_HP_PER_LEVEL,
+  BOSS_XP_REWARD,
+  BOSS_GOLD_REWARD,
+  BOSS_NAMES,
+  BOSS_TYPES,
 } from '../constants/game';
 import { runMigrations } from '../utils/migration';
 
@@ -51,6 +64,8 @@ const DEFAULT_USER: UserStats = {
 };
 
 const BUILT_IN_HEALTH_POTION_ID = 'health-potion-builtin';
+const BUILT_IN_XP_BOOST_ID = 'xp-boost-builtin';
+const BUILT_IN_STREAK_FREEZE_ID = 'streak-freeze-builtin';
 
 function createHealthPotion(): Reward {
   return {
@@ -64,17 +79,65 @@ function createHealthPotion(): Reward {
   };
 }
 
+function createXpBoost(): Reward {
+  return {
+    id: BUILT_IN_XP_BOOST_ID,
+    title: 'XP 增幅器',
+    description: `接下来 ${XP_BOOST_DURATION_TASKS} 个任务获得 ${XP_BOOST_MULTIPLIER} 倍 XP`,
+    goldCost: XP_BOOST_COST,
+    type: RewardType.XpBoost,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function createStreakFreeze(): Reward {
+  return {
+    id: BUILT_IN_STREAK_FREEZE_ID,
+    title: '连胜冻结',
+    description: '今日未完成每日任务不会中断连胜',
+    goldCost: STREAK_FREEZE_COST,
+    type: RewardType.StreakFreeze,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function createBoss(level: number): Boss {
+  const bossTypes = BOSS_TYPES as readonly string[];
+  const idx = Math.min(Math.floor((level - 1) / 5), bossTypes.length - 1);
+  const type = bossTypes[idx];
+  const name = BOSS_NAMES[type] || '怪物';
+  const maxHp = BOSS_HP_PER_LEVEL[type] || 50;
+  return {
+    id: generateId(),
+    name,
+    type: type as Boss['type'],
+    hp: maxHp,
+    maxHp,
+    level: level,
+    xpReward: BOSS_XP_REWARD[type] || 50,
+    goldReward: BOSS_GOLD_REWARD[type] || 30,
+    defeated: false,
+    damageDealt: 0,
+    imageType: type,
+  };
+}
+
 interface GameActions {
   addDaily: (data: { title: string; difficulty: Daily['difficulty']; notes?: string }) => void;
   updateDaily: (id: string, updates: Partial<Daily>) => void;
   deleteDaily: (id: string) => void;
   toggleDaily: (id: string) => void;
 
-  addTodo: (data: { title: string; difficulty: Todo['difficulty']; notes?: string }) => void;
+  addTodo: (data: { title: string; difficulty: Todo['difficulty']; notes?: string; subTasks?: { title: string }[] }) => void;
   updateTodo: (id: string, updates: Partial<Todo>) => void;
   deleteTodo: (id: string) => void;
   completeTodo: (id: string) => void;
   uncompleteTodo: (id: string) => void;
+  addSubTask: (todoId: string, title: string) => void;
+  toggleSubTask: (todoId: string, subTaskId: string) => void;
+  deleteSubTask: (todoId: string, subTaskId: string) => void;
 
   addHabit: (data: {
     title: string;
@@ -97,6 +160,10 @@ interface GameActions {
   takeDamage: (amount: number) => void;
   heal: (amount: number) => void;
   addLogEntry: (entry: Omit<ActivityLogEntry, 'id'>) => void;
+  removeLogEntry: (taskId: string) => void;
+
+  spawnBoss: () => void;
+  dealDamageToBoss: (amount: number) => void;
 }
 
 type GameStore = AppState & GameActions;
@@ -108,12 +175,15 @@ export const useGameStore = create<GameStore>()(
       dailies: [],
       todos: [],
       habits: [],
-      rewards: [createHealthPotion()],
+      rewards: [createHealthPotion(), createXpBoost(), createStreakFreeze()],
       activityLog: [],
       lastResetDate: getTodayDateString(),
-      schemaVersion: 1,
+      schemaVersion: 2,
+      boss: null,
+      totalBossesDefeated: 0,
+      xpBoostRemaining: 0,
+      streakFrozen: false,
 
-      // ---- Daily Actions ----
       addDaily: (data) => {
         const now = new Date().toISOString();
         const daily: Daily = {
@@ -162,10 +232,19 @@ export const useGameStore = create<GameStore>()(
                 : d,
             ),
           }));
+          get().removeLogEntry(id);
         } else {
-          const xp = calculateXPForDifficulty(daily.difficulty);
+          const baseXp = calculateXPForDifficulty(daily.difficulty);
           const gold = calculateGoldForDifficulty(daily.difficulty);
+          const state = get();
+          const xpMult = state.xpBoostRemaining > 0 ? XP_BOOST_MULTIPLIER : 1;
+          const xp = baseXp * xpMult;
           const newStreak = daily.streak + 1;
+
+          if (state.xpBoostRemaining > 0) {
+            set((s) => ({ xpBoostRemaining: s.xpBoostRemaining - 1 }));
+          }
+
           set((s) => ({
             dailies: s.dailies.map((d) =>
               d.id === id
@@ -185,21 +264,29 @@ export const useGameStore = create<GameStore>()(
           }));
           get().addLogEntry({
             timestamp: new Date().toISOString(),
-            message: `完成每日 "${daily.title}": +${xp} XP, +${gold} 金币`,
+            message: `完成每日「${daily.title}」+${xp}XP +${gold}💰`,
             type: 'xp',
             amount: xp,
+            taskId: id,
           });
+          get().dealDamageToBoss(BOSS_DAMAGE_PER_TASK);
         }
       },
 
-      // ---- Todo Actions ----
       addTodo: (data) => {
         const now = new Date().toISOString();
+        const subTasks: SubTask[] = (data.subTasks || []).map((st) => ({
+          id: generateId(),
+          title: st.title,
+          completed: false,
+        }));
+        const { subTasks: _, ...rest } = data;
         const todo: Todo = {
-          ...data,
+          ...rest,
           type: TaskType.Todo,
           id: generateId(),
           completed: false,
+          subTasks,
           createdAt: now,
           updatedAt: now,
         };
@@ -222,9 +309,17 @@ export const useGameStore = create<GameStore>()(
         const todo = get().todos.find((t) => t.id === id);
         if (!todo || todo.completed) return;
 
-        const xp = calculateXPForDifficulty(todo.difficulty);
+        const baseXp = calculateXPForDifficulty(todo.difficulty);
         const gold = calculateGoldForDifficulty(todo.difficulty);
+        const state = get();
+        const xpMult = state.xpBoostRemaining > 0 ? XP_BOOST_MULTIPLIER : 1;
+        const xp = baseXp * xpMult;
         const now = new Date().toISOString();
+
+        if (state.xpBoostRemaining > 0) {
+          set((s) => ({ xpBoostRemaining: s.xpBoostRemaining - 1 }));
+        }
+
         set((s) => ({
           todos: s.todos.map((t) =>
             t.id === id ? { ...t, completed: true, completedAt: now, updatedAt: now } : t,
@@ -237,10 +332,12 @@ export const useGameStore = create<GameStore>()(
         }));
         get().addLogEntry({
           timestamp: now,
-          message: `完成待办 "${todo.title}": +${xp} XP, +${gold} 金币`,
+          message: `完成待办「${todo.title}」+${xp}XP +${gold}💰`,
           type: 'xp',
           amount: xp,
+          taskId: id,
         });
+        get().dealDamageToBoss(BOSS_DAMAGE_PER_TASK);
       },
 
       uncompleteTodo: (id) => {
@@ -262,9 +359,53 @@ export const useGameStore = create<GameStore>()(
               : t,
           ),
         }));
+        get().removeLogEntry(id);
       },
 
-      // ---- Habit Actions ----
+      addSubTask: (todoId, title) => {
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === todoId
+              ? {
+                  ...t,
+                  subTasks: [...t.subTasks, { id: generateId(), title, completed: false }],
+                  updatedAt: new Date().toISOString(),
+                }
+              : t,
+          ),
+        }));
+      },
+
+      toggleSubTask: (todoId, subTaskId) => {
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === todoId
+              ? {
+                  ...t,
+                  subTasks: t.subTasks.map((st) =>
+                    st.id === subTaskId ? { ...st, completed: !st.completed } : st,
+                  ),
+                  updatedAt: new Date().toISOString(),
+                }
+              : t,
+          ),
+        }));
+      },
+
+      deleteSubTask: (todoId, subTaskId) => {
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === todoId
+              ? {
+                  ...t,
+                  subTasks: t.subTasks.filter((st) => st.id !== subTaskId),
+                  updatedAt: new Date().toISOString(),
+                }
+              : t,
+          ),
+        }));
+      },
+
       addHabit: (data) => {
         const now = new Date().toISOString();
         const habit: Habit = {
@@ -320,9 +461,10 @@ export const useGameStore = create<GameStore>()(
           }));
           get().addLogEntry({
             timestamp: new Date().toISOString(),
-            message: `好习惯 "${habit.title}": +${xp} XP, +${gold} 金币`,
+            message: `好习惯「${habit.title}」+${xp}XP +${gold}💰`,
             type: 'xp',
             amount: xp,
+            taskId: id,
           });
         }
 
@@ -339,14 +481,14 @@ export const useGameStore = create<GameStore>()(
           }));
           get().addLogEntry({
             timestamp: new Date().toISOString(),
-            message: `坏习惯 "${habit.title}": -${damage} HP`,
+            message: `坏习惯「${habit.title}」-${damage} HP`,
             type: 'hp_damage',
             amount: damage,
+            taskId: id,
           });
         }
       },
 
-      // ---- Reward Actions ----
       addReward: (data) => {
         const now = new Date().toISOString();
         const reward: Reward = {
@@ -368,7 +510,7 @@ export const useGameStore = create<GameStore>()(
       },
 
       deleteReward: (id) => {
-        if (id === BUILT_IN_HEALTH_POTION_ID) return;
+        if (id === BUILT_IN_HEALTH_POTION_ID || id === BUILT_IN_XP_BOOST_ID || id === BUILT_IN_STREAK_FREEZE_ID) return;
         set((s) => ({ rewards: s.rewards.filter((r) => r.id !== id) }));
       },
 
@@ -385,14 +527,30 @@ export const useGameStore = create<GameStore>()(
           get().heal(HEALTH_POTION_HEAL);
           get().addLogEntry({
             timestamp: new Date().toISOString(),
-            message: `使用了生命药水: +${HEALTH_POTION_HEAL} HP`,
+            message: `使用了生命药水 +${HEALTH_POTION_HEAL} HP`,
             type: 'hp_heal',
             amount: HEALTH_POTION_HEAL,
+          });
+        } else if (reward.type === RewardType.XpBoost) {
+          set(() => ({ xpBoostRemaining: XP_BOOST_DURATION_TASKS }));
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `激活了 XP 增幅器！接下来 ${XP_BOOST_DURATION_TASKS} 个任务将获得 ${XP_BOOST_MULTIPLIER} 倍 XP`,
+            type: 'xp',
+            amount: XP_BOOST_DURATION_TASKS,
+          });
+        } else if (reward.type === RewardType.StreakFreeze) {
+          set(() => ({ streakFrozen: true }));
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: '激活了连胜冻结！今日未完成每日任务不会中断连胜',
+            type: 'gold',
+            amount: 0,
           });
         } else {
           get().addLogEntry({
             timestamp: new Date().toISOString(),
-            message: `兑换了 "${reward.title}"，花费 ${reward.goldCost} 金币`,
+            message: `兑换了「${reward.title}」花费 ${reward.goldCost} 💰`,
             type: 'gold',
             amount: -reward.goldCost,
           });
@@ -400,7 +558,6 @@ export const useGameStore = create<GameStore>()(
         return true;
       },
 
-      // ---- System Actions ----
       addXP: (amount) => {
         set((s) => {
           let { xp, level } = s.user;
@@ -414,6 +571,9 @@ export const useGameStore = create<GameStore>()(
               type: 'levelup',
               amount: level,
             });
+            if (!get().boss || get().boss?.defeated) {
+              get().spawnBoss();
+            }
           }
           const newMaxHp = calculateMaxHp(level);
           return {
@@ -436,7 +596,7 @@ export const useGameStore = create<GameStore>()(
             const revivedHp = Math.floor(s.user.maxHp * DEATH_REVIVE_HP_PERCENT);
             get().addLogEntry({
               timestamp: new Date().toISOString(),
-              message: `生命值归零！失去了 ${goldLoss} 金币和 ${DEATH_XP_LOSS} XP...`,
+              message: `生命值归零！失去了 ${goldLoss} 💰 和 ${DEATH_XP_LOSS} XP...`,
               type: 'death',
             });
             return {
@@ -469,24 +629,73 @@ export const useGameStore = create<GameStore>()(
         }));
       },
 
+      removeLogEntry: (taskId) => {
+        set((s) => ({
+          activityLog: s.activityLog.filter((e) => e.taskId !== taskId),
+        }));
+      },
+
+      spawnBoss: () => {
+        const level = get().user.level;
+        const boss = createBoss(level);
+        set({ boss });
+        get().addLogEntry({
+          timestamp: new Date().toISOString(),
+          message: `新的首领出现了：「${boss.name}」(Lv.${level}) HP:${boss.maxHp}`,
+          type: 'boss',
+          amount: boss.maxHp,
+        });
+      },
+
+      dealDamageToBoss: (amount) => {
+        const boss = get().boss;
+        if (!boss || boss.defeated) return;
+        const newHp = Math.max(0, boss.hp - amount);
+        const newDamage = boss.damageDealt + amount;
+        if (newHp <= 0) {
+          set((s) => ({
+            boss: { ...boss, hp: 0, defeated: true, damageDealt: newDamage },
+            totalBossesDefeated: s.totalBossesDefeated + 1,
+          }));
+          const xp = boss.xpReward;
+          const gold = boss.goldReward;
+          get().addXP(xp);
+          get().addGold(gold);
+          get().addLogEntry({
+            timestamp: new Date().toISOString(),
+            message: `击败了首领「${boss.name}」！+${xp}XP +${gold}💰`,
+            type: 'boss',
+            amount: xp,
+          });
+        } else {
+          set({ boss: { ...boss, hp: newHp, damageDealt: newDamage } });
+        }
+      },
+
       checkAndResetDailies: () => {
         const today = getTodayDateString();
         const state = get();
         if (state.lastResetDate === today) return;
 
         let totalDamage = 0;
-        const uncompleted = state.dailies.filter((d) => !d.completedToday).length;
+        const uncompleted = state.dailies.filter((d) => !d.completedToday);
         state.dailies.forEach((d) => {
           if (!d.completedToday) {
             totalDamage += DAILY_HP_PENALTY;
           }
         });
 
-        const allCompleted = uncompleted === 0 && state.dailies.length > 0;
-        const newCurrentStreak = allCompleted ? state.user.currentStreak + 1 : 0;
+        const allCompleted = uncompleted.length === 0 && state.dailies.length > 0;
+        const wasFrozen = state.streakFrozen;
+        const newCurrentStreak = allCompleted
+          ? state.user.currentStreak + 1
+          : wasFrozen
+            ? state.user.currentStreak
+            : 0;
 
         set((s) => ({
           lastResetDate: today,
+          streakFrozen: false,
           dailies: s.dailies.map((d) => ({
             ...d,
             completedToday: false,
@@ -506,11 +715,11 @@ export const useGameStore = create<GameStore>()(
           },
         }));
 
-        if (totalDamage > 0) {
+        if (totalDamage > 0 && !wasFrozen) {
           get().takeDamage(totalDamage);
           get().addLogEntry({
             timestamp: new Date().toISOString(),
-            message: `${uncompleted} 个每日任务未完成: -${totalDamage} HP`,
+            message: `${uncompleted.length} 个每日任务未完成 -${totalDamage} HP`,
             type: 'hp_damage',
             amount: totalDamage,
           });
@@ -521,7 +730,7 @@ export const useGameStore = create<GameStore>()(
           get().addGold(STREAK_BONUS_GOLD);
           get().addLogEntry({
             timestamp: new Date().toISOString(),
-            message: `${STREAK_BONUS_INTERVAL} 天连胜奖励: +${STREAK_BONUS_XP} XP, +${STREAK_BONUS_GOLD} 金币！`,
+            message: `${STREAK_BONUS_INTERVAL} 天连胜奖励！+${STREAK_BONUS_XP}XP +${STREAK_BONUS_GOLD}💰`,
             type: 'xp',
             amount: STREAK_BONUS_XP,
           });
@@ -530,13 +739,33 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: 'gamified-todo-storage',
-      version: 1,
+      version: 2,
       migrate: (persistedState, version) => runMigrations(persistedState, version) as GameStore,
       onRehydrateStorage: () => (state) => {
         if (state) {
           const hasHealthPotion = state.rewards.some((r) => r.id === BUILT_IN_HEALTH_POTION_ID);
           if (!hasHealthPotion) {
             state.rewards = [createHealthPotion(), ...state.rewards];
+          }
+          const hasXpBoost = state.rewards.some((r) => r.id === BUILT_IN_XP_BOOST_ID);
+          if (!hasXpBoost) {
+            state.rewards = [...state.rewards, createXpBoost()];
+          }
+          const hasStreakFreeze = state.rewards.some((r) => r.id === BUILT_IN_STREAK_FREEZE_ID);
+          if (!hasStreakFreeze) {
+            state.rewards = [...state.rewards, createStreakFreeze()];
+          }
+          if (!state.boss) {
+            state.boss = null;
+          }
+          if (state.totalBossesDefeated === undefined) {
+            state.totalBossesDefeated = 0;
+          }
+          if (state.xpBoostRemaining === undefined) {
+            state.xpBoostRemaining = 0;
+          }
+          if (state.streakFrozen === undefined) {
+            state.streakFrozen = false;
           }
         }
       },

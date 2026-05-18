@@ -26,3 +26,7 @@ export function calculateHPDamage(difficulty: Difficulty): number {
 export function calculateMaxHp(level: number): number {
   return DEFAULT_MAX_HP + (level - 1) * HP_PER_LEVEL;
 }
+
+export function calculateBossDPS(level: number): number {
+  return 3 + Math.floor(level * 0.8);
+}

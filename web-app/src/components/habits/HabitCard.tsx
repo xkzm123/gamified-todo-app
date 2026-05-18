@@ -2,6 +2,7 @@ import type { Habit } from '../../types';
 import { HabitDirection, Difficulty } from '../../types';
 import { DIFFICULTY_LABELS, HABIT_DIRECTION_LABELS } from '../../constants/game';
 import { calculateXPForDifficulty, calculateHPDamage } from '../../utils/gamification';
+import { IconFire, IconTrash } from '../common/Icons';
 
 interface Props {
   habit: Habit;
@@ -30,7 +31,7 @@ export default function HabitCard({ habit, onTapUp, onTapDown, onEdit, onDelete 
             {DIFFICULTY_LABELS[habit.difficulty]}
           </span>
           <span className="dir-text">{HABIT_DIRECTION_LABELS[habit.direction]}</span>
-          {habit.streak > 0 && <span className="streak-text">🔥 {habit.streak}天</span>}
+          {habit.streak > 0 && <span className="streak-text"><IconFire size={12} /> {habit.streak}天</span>}
         </div>
       </div>
 
@@ -49,7 +50,7 @@ export default function HabitCard({ habit, onTapUp, onTapDown, onEdit, onDelete 
         )}
       </div>
 
-      <button className="del-btn" onClick={onDelete}>🗑</button>
+      <button className="del-btn" onClick={onDelete}><IconTrash size={16} /></button>
     </div>
   );
 }

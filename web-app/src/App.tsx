@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { useMidnightReset } from './hooks/useMidnightReset';
+import { IconTasks, IconHabits, IconRewards, IconProfile } from './components/common/Icons';
 import TaskListScreen from './screens/tasks/TaskListScreen';
 import AddTaskScreen from './screens/tasks/AddTaskScreen';
 import EditTaskScreen from './screens/tasks/EditTaskScreen';
@@ -34,19 +35,19 @@ function AppShell() {
 
       <nav className="tab-bar">
         <NavLink to="/tasks" className={({ isActive }) => `tab-item ${isActive ? 'tab-active' : ''}`}>
-          <span className="tab-icon">📋</span>
+          <span className="tab-icon"><IconTasks size={22} /></span>
           <span className="tab-label">任务</span>
         </NavLink>
         <NavLink to="/habits" className={({ isActive }) => `tab-item ${isActive ? 'tab-active' : ''}`}>
-          <span className="tab-icon">🔄</span>
+          <span className="tab-icon"><IconHabits size={22} /></span>
           <span className="tab-label">习惯</span>
         </NavLink>
         <NavLink to="/rewards" className={({ isActive }) => `tab-item ${isActive ? 'tab-active' : ''}`}>
-          <span className="tab-icon">🏪</span>
+          <span className="tab-icon"><IconRewards size={22} /></span>
           <span className="tab-label">奖励</span>
         </NavLink>
         <NavLink to="/profile" className={({ isActive }) => `tab-item ${isActive ? 'tab-active' : ''}`}>
-          <span className="tab-icon">👤</span>
+          <span className="tab-icon"><IconProfile size={22} /></span>
           <span className="tab-label">我的</span>
         </NavLink>
       </nav>

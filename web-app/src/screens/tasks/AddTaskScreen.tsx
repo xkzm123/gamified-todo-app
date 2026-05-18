@@ -8,11 +8,11 @@ export default function AddTaskScreen() {
   const addDaily = useGameStore((s) => s.addDaily);
   const addTodo = useGameStore((s) => s.addTodo);
 
-  const handleSave = (data: { title: string; difficulty: any; notes: string }) => {
+  const handleSave = (data: { title: string; difficulty: any; notes: string; subTasks?: { title: string }[] }) => {
     if (type === 'daily') {
-      addDaily(data);
+      addDaily({ title: data.title, difficulty: data.difficulty, notes: data.notes });
     } else {
-      addTodo(data);
+      addTodo({ title: data.title, difficulty: data.difficulty, notes: data.notes, subTasks: data.subTasks });
     }
     navigate(-1);
   };
@@ -24,7 +24,7 @@ export default function AddTaskScreen() {
         <span className="header-title">新建{type === 'daily' ? '每日任务' : '待办事项'}</span>
         <div className="header-spacer" />
       </div>
-      <TaskForm onSave={handleSave} />
+      <TaskForm onSave={handleSave} showSubTasks={type === 'todo'} />
     </div>
   );
 }
