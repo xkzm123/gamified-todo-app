@@ -747,5 +747,95 @@ html, body, #root {
   text-align: right;
 }
 
+/* === Sync Section === */
+.sync-section { margin: 20px 16px; }
+.sync-setup {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.sync-desc {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.sync-actions { display: flex; gap: 10px; }
+.sync-btn {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  font-family: inherit;
+}
+.sync-btn:active { opacity: 0.9; }
+.sync-btn-primary { background: var(--accent); color: #fff; }
+.sync-btn-secondary { background: #f1f5f9; color: #475569; }
+.sync-btn-danger { background: #fef2f2; color: #ef4444; }
+.sync-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 16px;
+  text-align: center;
+  letter-spacing: 2px;
+  color: #1a1a2e;
+  background: #f8fafc;
+  outline: none;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  margin-bottom: 16px;
+  transition: border-color 0.2s;
+}
+.sync-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.sync-connected {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.sync-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.sync-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+.sync-status-connecting { background: #f59e0b; animation: sync-pulse 1s ease-in-out infinite; }
+.sync-status-synced { background: #22c55e; }
+.sync-status-error { background: #ef4444; }
+@keyframes sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.sync-status-text { font-size: 14px; font-weight: 600; color: #334155; }
+.sync-key-display {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.sync-key-label { font-size: 12px; color: #94a3b8; }
+.sync-key-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a1a2e;
+  letter-spacing: 1px;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+}
+
 /* === Scrollbar === */
 ::-webkit-scrollbar { width: 0; }

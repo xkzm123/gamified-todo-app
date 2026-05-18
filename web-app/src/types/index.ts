@@ -139,4 +139,7 @@ export interface AppState {
   streakFrozen: boolean;
   taskFilter: 'daily' | 'todo';
   theme: ThemeColor;
+  syncKey: string | null;
+  lastModified: string;
+  _syncingFromRemote?: boolean;
 }

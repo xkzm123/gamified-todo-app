@@ -3,6 +3,7 @@ import { xpToNextLevel } from '../../utils/gamification';
 import { formatTimestamp } from '../../utils/date';
 import { ThemeColor } from '../../types';
 import StatusBar from '../../components/common/StatusBar';
+import SyncSetup from '../../sync/SyncSetup';
 import { IconHeart, IconCoin, IconSword, IconBoss } from '../../components/common/Icons';
 
 const THEME_OPTIONS: { key: ThemeColor; label: string; dotClass: string }[] = [
@@ -90,6 +91,8 @@ export default function ProfileScreen() {
             ))}
           </div>
         </div>
+
+        <SyncSetup />
 
         <div className="section">
           <div className="section-title">统计</div>

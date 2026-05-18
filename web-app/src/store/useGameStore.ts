@@ -168,6 +168,8 @@ interface GameActions {
 
   setTaskFilter: (filter: 'daily' | 'todo') => void;
   setTheme: (theme: ThemeColor) => void;
+  setSyncKey: (key: string | null) => void;
+  setFromRemote: (state: Partial<AppState>) => void;
 }
 
 type GameStore = AppState & GameActions;
@@ -189,6 +191,8 @@ export const useGameStore = create<GameStore>()(
       streakFrozen: false,
       taskFilter: 'daily' as const,
       theme: ThemeColor.Blue,
+      syncKey: null,
+      lastModified: '',
 
       addDaily: (data) => {
         const now = new Date().toISOString();
@@ -685,6 +689,15 @@ export const useGameStore = create<GameStore>()(
         document.documentElement.setAttribute('data-theme', theme);
       },
 
+      setSyncKey: (key) => set({ syncKey: key, lastModified: new Date().toISOString() }),
+
+      setFromRemote: (remoteState) => {
+        set({
+          ...remoteState,
+          _syncingFromRemote: false,
+        });
+      },
+
       checkAndResetDailies: () => {
         const today = getTodayDateString();
         const state = get();
@@ -785,6 +798,12 @@ export const useGameStore = create<GameStore>()(
           }
           if (state.theme === undefined) {
             state.theme = ThemeColor.Blue;
+          }
+          if (state.syncKey === undefined) {
+            state.syncKey = null;
+          }
+          if (state.lastModified === undefined) {
+            state.lastModified = '';
           }
           document.documentElement.setAttribute('data-theme', state.theme);
         }
